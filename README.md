@@ -1,1 +1,1 @@
-# Lab07
+# Lab07: Image Tracking
