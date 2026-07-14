@@ -164,7 +164,7 @@ async function iniciarMindAR() {
     
     log('✅ MindARThree creado');
 
-    // Luces globales (compartidas por ambos dragones)
+    // Luces globales
     scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
     const dirLight = new THREE.DirectionalLight(0xffffff, 3);
     dirLight.position.set(1, 1, 1).normalize();
@@ -180,27 +180,29 @@ async function iniciarMindAR() {
         id: 'blue',
         targetIndex: 0,
         modelPath: './models/Blue.glb',
-        animIndex: 4,        // FlyIdle
+        animIndex: 4,
         color: '#50a8fc',
         badge: badgeBlue,
         anchor: null,
         mixer: null,
         model: null,
         container: null,
-        visible: false
+        visible: false,
+        lostTimer: null
       },
       {
         id: 'red',
         targetIndex: 1,
         modelPath: './models/Red.glb',
-        animIndex: 0,        // Animación base
+        animIndex: 0,
         color: '#ff5050',
         badge: badgeRed,
         anchor: null,
         mixer: null,
         model: null,
         container: null,
-        visible: false
+        visible: false,
+        lostTimer: null
       }
     ];
 
@@ -214,44 +216,64 @@ async function iniciarMindAR() {
     for (const dragon of dragones) {
       log(`Creando anchor [${dragon.id}] para targetIndex ${dragon.targetIndex}...`);
       
-      // Crear anchor
       const anchor = mindarThree.addAnchor(dragon.targetIndex);
       dragon.anchor = anchor;
       
-      // Helper visual de ejes (10cm) para debug
+      // DEBUG: Cubo visible inmediatamente para verificar tracking
+      // Se oculta cuando el modelo GLB termina de cargar
+      const debugGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+      const debugMat = new THREE.MeshBasicMaterial({ 
+        color: dragon.id === 'blue' ? 0x50a8fc : 0xff5050,
+        wireframe: true 
+      });
+      const debugCube = new THREE.Mesh(debugGeo, debugMat);
+      debugCube.position.set(0, 0.05, 0.05);
+      anchor.group.add(debugCube);
+      
+      // Ejes de referencia
       const axesHelper = new THREE.AxesHelper(0.1);
       anchor.group.add(axesHelper);
       
-      // Eventos de detección
+      // Eventos con DEBOUNCE para evitar fluctuación LOST/FOUND
       anchor.onTargetFound = () => {
-        dragon.visible = true;
-        dragon.badge.classList.add(`active-${dragon.id}`);
-        statusEl.textContent = `🎯 ¡Dragón ${dragon.id.toUpperCase()} detectado!`;
-        statusEl.className = 'ok';
-        log(`🎯 [${dragon.id}] Target FOUND`);
-        
-        // Reanudar animación si existe
-        if (dragon.mixer) {
-          dragon.mixer.timeScale = 1;
+        if (dragon.lostTimer) {
+          clearTimeout(dragon.lostTimer);
+          dragon.lostTimer = null;
+        }
+        if (!dragon.visible) {
+          dragon.visible = true;
+          dragon.badge.classList.add(`active-${dragon.id}`);
+          statusEl.textContent = `🎯 ¡Dragón ${dragon.id.toUpperCase()} detectado!`;
+          statusEl.className = 'ok';
+          log(`🎯 [${dragon.id}] Target FOUND`);
+          
+          // Reanudar animación
+          if (dragon.mixer) dragon.mixer.timeScale = 1;
         }
       };
       
       anchor.onTargetLost = () => {
-        dragon.visible = false;
-        dragon.badge.classList.remove(`active-${dragon.id}`);
-        const otro = dragones.find(d => d.id !== dragon.id);
-        if (otro.visible) {
-          statusEl.textContent = `👀 Dragón ${otro.id.toUpperCase()} visible`;
-          statusEl.className = 'ok';
-        } else {
-          statusEl.textContent = '👀 Buscando tarjetas...';
-          statusEl.className = 'info';
-        }
-        log(`👀 [${dragon.id}] Target LOST`);
-        
-        // Pausar animación (congelar tiempo, no resetear)
-        if (dragon.mixer) {
-          dragon.mixer.timeScale = 0;
+        // Debounce: esperar 400ms antes de declarar LOST
+        // Esto evita el parpadeo cuando el tracking es inestable
+        if (!dragon.lostTimer) {
+          dragon.lostTimer = setTimeout(() => {
+            dragon.visible = false;
+            dragon.badge.classList.remove(`active-${dragon.id}`);
+            dragon.lostTimer = null;
+            
+            const otro = dragones.find(d => d.id !== dragon.id);
+            if (otro && otro.visible) {
+              statusEl.textContent = `👀 Dragón ${otro.id.toUpperCase()} visible`;
+              statusEl.className = 'ok';
+            } else {
+              statusEl.textContent = '👀 Buscando tarjetas...';
+              statusEl.className = 'info';
+            }
+            log(`👀 [${dragon.id}] Target LOST (debounced)`);
+            
+            // Pausar animación
+            if (dragon.mixer) dragon.mixer.timeScale = 0;
+          }, 400);
         }
       };
 
@@ -261,7 +283,9 @@ async function iniciarMindAR() {
       loader.load(dragon.modelPath, (gltf) => {
         log(`✅ [${dragon.id}] Modelo cargado. Animaciones: ${gltf.animations.length}`);
         
-        // Contenedor para escala y posición
+        // Ocultar cubo de debug
+        debugCube.visible = false;
+        
         const container = new THREE.Group();
         const model = gltf.scene;
         
@@ -275,8 +299,6 @@ async function iniciarMindAR() {
         model.position.set(-center.x, -center.y, -center.z);
         
         container.add(model);
-        
-        // Posición sobre la tarjeta (z positivo hacia la cámara)
         container.position.set(0, 0.05, 0.05);
         
         anchor.group.add(container);
@@ -319,21 +341,25 @@ async function iniciarMindAR() {
     }
 
     // ============================================
-    // RENDER LOOP OFICIAL DE MINDAR
+    // RENDER LOOP OFICIAL (CORREGIDO)
     // ============================================
     
-    // NO usamos renderer.setAnimationLoop propio.
-    // MindARThree maneja el loop internamente. Nosotros nos enganchamos
-    // al callback onUpdate para actualizar animaciones.
+    // MindARThree NO tiene .onUpdate. Usamos setAnimationLoop como en tu
+    // código original que funcionaba. El renderer.render() es necesario.
     
-    mindarThree.onUpdate = (delta) => {
-      // Actualizar solo los mixers de dragones visibles
+    renderer.setAnimationLoop(() => {
+      const delta = clock.getDelta();
+      
+      // Actualizar animaciones de dragones visibles
       for (const dragon of dragones) {
         if (dragon.mixer && dragon.visible) {
           dragon.mixer.update(delta);
         }
       }
-    };
+      
+      renderer.render(scene, camera);
+    });
+    log('✅ Render loop iniciado');
 
     // ============================================
     // INICIAR CÁMARA
