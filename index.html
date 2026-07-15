@@ -5,13 +5,54 @@
 <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 <title>Lab07: Dragones AR</title>
 <style>
-  * { margin: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-  #ui { position: absolute; top: 0; left: 0; z-index: 10; padding: 1em; background: rgba(0,0,0,0.8); color: #fff; font-family: sans-serif; font-size: 0.9em; max-width: 380px; }
-  .badge { display: inline-block; padding: 0.3em 0.6em; margin: 0.2em; border-radius: 4px; background: #333; color: #888; font-size: 0.8em; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: sans-serif;
+  }
+  /* MindAR inyecta video y canvas en el body. Forzamos que ocupen todo. */
+  body > video, body > canvas {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+  #ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 100;
+    padding: 0.8em 1em;
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    font-size: 0.85em;
+    border-radius: 8px;
+    max-width: 360px;
+    pointer-events: none;
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.2em 0.5em;
+    margin: 0.15em;
+    border-radius: 4px;
+    background: #444;
+    color: #aaa;
+    font-size: 0.8em;
+  }
   .badge.on-blue { background: #50a8fc; color: #000; }
   .badge.on-red { background: #ff5050; color: #000; }
-  #debug { margin-top: 0.5em; font-size: 0.75em; color: #aaa; max-height: 120px; overflow-y: auto; }
+  #debug {
+    margin-top: 0.4em;
+    font-size: 0.72em;
+    color: #aaa;
+    max-height: 100px;
+    overflow-y: auto;
+  }
 </style>
 <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
 <script type="importmap">
@@ -26,7 +67,7 @@
 </head>
 <body>
 <div id="ui">
-  <h3>🐉 Lab07</h3>
+  <h3 style="margin:0 0 0.3em 0;">🐉 Lab07</h3>
   <div id="status">Iniciando...</div>
   <div>
     <span class="badge" id="b-blue">🔵 Azul</span>
@@ -131,19 +172,49 @@ async function iniciar() {
 
     const model = gltf.scene;
 
-    // DIFERENCIA CLAVE: NO centramos con Box3.
-    // El SoulEater es un modelo skinned. Box3 calcula mal con bones.
-    // Dejamos el modelo en su posición original del GLB (como en Babylon.js).
+    // ============================================
+    // DIAGNÓSTICO: ¿Cuántos meshes y vértices tiene?
+    // ============================================
+    let meshCount = 0;
+    let vertexCount = 0;
+    model.traverse((child) => {
+      if (child.isMesh) {
+        meshCount++;
+        vertexCount += child.geometry.attributes.position.count;
+      }
+    });
+    log(`📊 Rojo: ${meshCount} meshes, ${vertexCount} vértices`);
+
+    // ============================================
+    // FORZAR MATERIAL ROJO BRILLANTE + DOBLE CARA
+    // Si el modelo tiene geometría, esto lo hará visible
+    // sin depender de luces, texturas, ni alpha.
+    // ============================================
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.material = new THREE.MeshBasicMaterial({
+          color: 0xff0000,
+          side: THREE.DoubleSide,
+          wireframe: false
+        });
+      }
+    });
+    log('🔴 Rojo: material forzado a rojo brillante');
+
+    // ============================================
+    // POSICIÓN: dejar el modelo en su origen del GLB
+    // y subirlo ligeramente para que no esté enterrado
+    // ============================================
     const container = new THREE.Group();
     container.scale.set(1.5, 1.5, 1.5);
     container.position.set(0, 0.05, 0.05);
     container.add(model);
     a1.group.add(container);
 
-    // DEBUG: Bounding box del contenedor para verificar tamaño
+    // Verificar tamaño final
     const box = new THREE.Box3().setFromObject(container);
     const size = box.getSize(new THREE.Vector3());
-    log('📏 Rojo tamaño en escena: ' + size.x.toFixed(2) + ' x ' + size.y.toFixed(2) + ' x ' + size.z.toFixed(2));
+    log('📏 Rojo tamaño: ' + size.x.toFixed(2) + ' x ' + size.y.toFixed(2) + ' x ' + size.z.toFixed(2));
 
     if (gltf.animations[5]) {
       const mixer = new THREE.AnimationMixer(model);
