@@ -2,89 +2,223 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lab07 A-Frame</title>
+<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<title>Lab07: Dragones AR - MindAR</title>
 <style>
-  body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
-  #ui { 
-    position: absolute; top: 0; left: 0; z-index: 10; 
-    padding: 1em; background: rgba(0,0,0,0.8); color: white; 
-    font-size: 0.9em;
-  }
+  * { box-sizing: border-box; margin: 0; }
+  body { touch-action: none; overflow: hidden; width: 100vw; height: 100vh; background: #000; font-family: sans-serif; }
+  #ui { position: absolute; top: 0; left: 0; z-index: 10; padding: 1.2em; max-width: 420px; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); border-radius: 0 0 16px 0; }
+  h1 { font-size: 1.2em; color: #ffd43b; margin-bottom: 0.3em; }
+  p { font-size: 0.82em; color: #aaa; margin-bottom: 0.8em; }
+  #status { margin-top: 0.6em; font-size: 0.85em; color: #ccc; min-height: 1.4em; font-weight: 500; }
+  #status.ok { color: #51cf66; }
+  #status.err { color: #ff6b6b; }
+  .target-indicator { margin-top: 0.6em; display: flex; gap: 0.5em; }
+  .badge { font-size: 0.75em; padding: 0.3em 0.6em; border-radius: 6px; background: rgba(255,255,255,0.1); color: #888; border: 1px solid rgba(255,255,255,0.05); }
+  .badge.active-blue { background: rgba(80,168,252,0.25); color: #50a8fc; border-color: rgba(80,168,252,0.4); }
+  .badge.active-red { background: rgba(255,80,80,0.25); color: #ff5050; border-color: rgba(255,80,80,0.4); }
+  #debug { margin-top: 0.8em; font-size: 0.72em; color: #888; max-height: 160px; overflow-y: auto; }
 </style>
-<!-- A-Frame 1.3.0 (compatible con MindAR) -->
-<script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-<!-- MindAR para A-Frame -->
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+<script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
 </head>
 <body>
+<div id="ui">
+  <h1>🐉 Lab07: Dragones AR</h1>
+  <p>Azul = FlyIdle, Rojo = Fly Float.</p>
+  <div id="status">Iniciando...</div>
+  <div class="target-indicator">
+    <span class="badge" id="badge-blue">🔵 Azul</span>
+    <span class="badge" id="badge-red">🔴 Rojo</span>
+  </div>
+  <div id="debug"></div>
+</div>
 
-<div id="ui">⏳ Iniciando cámara AR...</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MindARThree } from 'mindar-image-three';
 
-<a-scene 
-  mindar-image="imageTargetSrc: ./targets.mind"
-  embedded
-  color-space="sRGB"
-  renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true"
-  vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false">
+const statusEl = document.getElementById('status');
+const debugEl = document.getElementById('debug');
+const badgeBlue = document.getElementById('badge-blue');
+const badgeRed = document.getElementById('badge-red');
 
-  <!-- Precarga modelos -->
-  <a-assets timeout="30000">
-    <a-asset-item id="blue-model" src="./models/Blue.glb"></a-asset-item>
-    <a-asset-item id="red-model" src="./models/Red.glb"></a-asset-item>
-  </a-assets>
+function log(msg) {
+  console.log(msg);
+  const line = document.createElement('div');
+  line.textContent = msg;
+  debugEl.appendChild(line);
+  debugEl.scrollTop = debugEl.scrollHeight;
+}
 
-  <!-- Cámara fija (MindAR la controla) -->
-  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+fetch('./targets.mind')
+  .then(r => {
+    if (!r.ok) throw new Error('Status: ' + r.status);
+    log('✅ targets.mind OK');
+    iniciarMindAR();
+  })
+  .catch(err => {
+    log('❌ Error targets.mind: ' + err.message);
+    statusEl.textContent = '❌ Error: targets.mind no encontrado';
+    statusEl.className = 'err';
+  });
 
-  <!-- Luces -->
-  <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
-  <a-light type="directional" color="#ffffff" intensity="0.8" position="1 1 1"></a-light>
+async function iniciarMindAR() {
+  try {
+    const mindarThree = new MindARThree({
+      container: document.body,
+      imageTargetSrc: './targets.mind',
+      filterMinCF: 0.0001,
+      filterBeta: 0.001,
+      missTolerance: 3,
+      warmupTolerance: 3
+    });
 
-  <!-- Target 0: Azul -->
-  <a-entity mindar-image-target="targetIndex: 0">
-    <a-gltf-model src="#blue-model" scale="1.5 1.5 1.5" position="0 0.05 0.05"></a-gltf-model>
-  </a-entity>
+    const { renderer, scene, camera } = mindarThree;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-  <!-- Target 1: Rojo -->
-  <a-entity mindar-image-target="targetIndex: 1">
-    <a-gltf-model src="#red-model" scale="1.5 1.5 1.5" position="0 0.05 0.05"></a-gltf-model>
-  </a-entity>
+    scene.add(new THREE.HemisphereLight(0xa5a5a5, 0x898989, 3));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+    dirLight.position.set(1, 1, 1).normalize();
+    scene.add(dirLight);
 
-</a-scene>
+    const dragones = [
+      { id: 'blue', targetIndex: 0, modelPath: './models/Blue.glb', animIndex: 4, scale: 1.5, badge: badgeBlue, anchor: null, mixer: null, model: null, container: null, visible: false, lostTimer: null },
+      { id: 'red', targetIndex: 1, modelPath: './models/Red.glb', animIndex: 5, scale: 1.5, badge: badgeRed, anchor: null, mixer: null, model: null, container: null, visible: false, lostTimer: null }
+    ];
 
-<script>
-const ui = document.getElementById('ui');
-const scene = document.querySelector('a-scene');
+    const loader = new GLTFLoader();
+    const clock = new THREE.Clock();
 
-// Escena lista
-scene.addEventListener('loaded', () => {
-  ui.textContent = '✅ Cámara OK. Muestra una tarjeta.';
-});
+    for (const dragon of dragones) {
+      const anchor = mindarThree.addAnchor(dragon.targetIndex);
+      dragon.anchor = anchor;
 
-// Target 0 (azul)
-const target0 = document.querySelector('[mindar-image-target="targetIndex: 0"]');
-target0.addEventListener('targetFound', () => {
-  ui.textContent = '🎯 AZUL detectado';
-  console.log('AZUL FOUND');
-});
-target0.addEventListener('targetLost', () => {
-  ui.textContent = '👀 Buscando...';
-  console.log('AZUL LOST');
-});
+      // Cubo wireframe
+      const debugCube = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.08, 0.08),
+        new THREE.MeshBasicMaterial({ color: dragon.id === 'blue' ? 0x50a8fc : 0xff0000, wireframe: true })
+      );
+      debugCube.position.set(0, 0.05, 0.05);
+      anchor.group.add(debugCube);
 
-// Target 1 (rojo)
-const target1 = document.querySelector('[mindar-image-target="targetIndex: 1"]');
-target1.addEventListener('targetFound', () => {
-  ui.textContent = '🎯 ROJO detectado';
-  console.log('ROJO FOUND');
-});
-target1.addEventListener('targetLost', () => {
-  ui.textContent = '👀 Buscando...';
-  console.log('ROJO LOST');
-});
+      anchor.group.add(new THREE.AxesHelper(0.1));
+
+      anchor.onTargetFound = () => {
+        if (dragon.lostTimer) { clearTimeout(dragon.lostTimer); dragon.lostTimer = null; }
+        if (!dragon.visible) {
+          dragon.visible = true;
+          dragon.badge.classList.add(`active-${dragon.id}`);
+          statusEl.textContent = `🎯 ${dragon.id.toUpperCase()} detectado`;
+          statusEl.className = 'ok';
+          log(`🎯 [${dragon.id}] FOUND`);
+          if (dragon.mixer) dragon.mixer.timeScale = 1;
+        }
+      };
+
+      anchor.onTargetLost = () => {
+        if (!dragon.lostTimer) {
+          dragon.lostTimer = setTimeout(() => {
+            dragon.visible = false;
+            dragon.badge.classList.remove(`active-${dragon.id}`);
+            dragon.lostTimer = null;
+            const otro = dragones.find(d => d.id !== dragon.id);
+            statusEl.textContent = otro && otro.visible ? `👀 ${otro.id.toUpperCase()} visible` : '👀 Buscando...';
+            statusEl.className = otro && otro.visible ? 'ok' : 'info';
+            log(`👀 [${dragon.id}] LOST`);
+            if (dragon.mixer) dragon.mixer.timeScale = 0;
+          }, 400);
+        }
+      };
+
+      loader.load(dragon.modelPath, (gltf) => {
+        log(`✅ [${dragon.id}] Cargado. Animaciones: ${gltf.animations.length}`);
+        debugCube.visible = false;
+
+        const container = new THREE.Group();
+        const model = gltf.scene;
+
+        // ============================================
+        // ESCALA: aplicar la del dragón
+        // ============================================
+        const s = dragon.scale;
+        container.scale.set(s, s, s);
+
+        // ============================================
+        // POSICIÓN: sobre la tarjeta
+        // ============================================
+        container.position.set(0, 0.05, 0.05);
+
+        // ============================================
+        // CENTRADO: DIFERENTE PARA CADA UNO
+        // ============================================
+        if (dragon.id === 'red') {
+          // ROJO: NO centrar con Box3. El esqueleto del SoulEater distorsiona el bounding box.
+          // Dejar el modelo en su posición original del GLB (como en Babylon.js).
+          model.position.set(0, 0, 0);
+          log(`🔧 [red] Sin centrado manual. Posición GLB original.`);
+        } else {
+          // AZUL: Centrado normal (funciona)
+          const box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+          model.position.set(-center.x, -center.y, -center.z);
+        }
+        // ============================================
+
+        container.add(model);
+        anchor.group.add(container);
+        dragon.container = container;
+        dragon.model = model;
+
+        // ============================================
+        // DIAGNÓSTICO: Bounding box final para verificar
+        // ============================================
+        const finalBox = new THREE.Box3().setFromObject(container);
+        const finalSize = finalBox.getSize(new THREE.Vector3());
+        log(`📏 [${dragon.id}] Tamaño final en escena: ${finalSize.x.toFixed(3)} x ${finalSize.y.toFixed(3)} x ${finalSize.z.toFixed(3)}`);
+
+        // Animación
+        if (gltf.animations && gltf.animations.length > 0) {
+          dragon.mixer = new THREE.AnimationMixer(model);
+          const clip = gltf.animations[dragon.animIndex] || gltf.animations[0];
+          log(`🎬 [${dragon.id}] [${dragon.animIndex}]: ${clip.name}`);
+          dragon.mixer.clipAction(clip).play();
+          dragon.mixer.timeScale = 0;
+        }
+
+      }, undefined, (err) => {
+        log(`❌ [${dragon.id}] Error: ${err.message}`);
+        statusEl.textContent = `❌ Error ${dragon.id}`;
+        statusEl.className = 'err';
+      });
+    }
+
+    renderer.setAnimationLoop(() => {
+      const delta = clock.getDelta();
+      for (const d of dragones) if (d.mixer && d.visible) d.mixer.update(delta);
+      renderer.render(scene, camera);
+    });
+
+    await mindarThree.start();
+    statusEl.textContent = '✅ Listo. Muestra tarjeta.';
+    statusEl.className = 'ok';
+
+  } catch (err) {
+    log('❌ Error: ' + err.message);
+    statusEl.textContent = '❌ Error: ' + err.message;
+    statusEl.className = 'err';
+  }
+}
 </script>
-
 </body>
 </html>
