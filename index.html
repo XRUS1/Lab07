@@ -106,7 +106,7 @@
 
 <div id="ui">
   <h1>🐉 Lab07: Dragones AR</h1>
-  <p>Apunta la cámara a una tarjeta. Azul = animación FlyIdle, Rojo = animación base.</p>
+  <p>Apunta la cámara a una tarjeta. Azul = FlyIdle, Rojo = Fly Float.</p>
   <div id="status">Iniciando MindAR...</div>
   <div class="target-indicator">
     <span class="badge" id="badge-blue">🔵 Azul</span>
@@ -153,12 +153,15 @@ async function iniciarMindAR() {
     
     const mindarThree = new MindARThree({
       container: document.body,
-      imageTargetSrc: './targets.mind'
+      imageTargetSrc: './targets.mind',
+      filterMinCF: 0.0001,
+      filterBeta: 0.001,
+      missTolerance: 3,
+      warmupTolerance: 3
     });
 
     const { renderer, scene, camera } = mindarThree;
     
-    // Configuración de render para modelos GLB modernos
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     
@@ -194,7 +197,7 @@ async function iniciarMindAR() {
         id: 'red',
         targetIndex: 1,
         modelPath: './models/Red.glb',
-        animIndex: 0,
+        animIndex: 5,
         color: '#ff5050',
         badge: badgeRed,
         anchor: null,
@@ -219,8 +222,7 @@ async function iniciarMindAR() {
       const anchor = mindarThree.addAnchor(dragon.targetIndex);
       dragon.anchor = anchor;
       
-      // DEBUG: Cubo visible inmediatamente para verificar tracking
-      // Se oculta cuando el modelo GLB termina de cargar
+      // DEBUG: Cubo wireframe visible inmediatamente
       const debugGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
       const debugMat = new THREE.MeshBasicMaterial({ 
         color: dragon.id === 'blue' ? 0x50a8fc : 0xff5050,
@@ -234,7 +236,7 @@ async function iniciarMindAR() {
       const axesHelper = new THREE.AxesHelper(0.1);
       anchor.group.add(axesHelper);
       
-      // Eventos con DEBOUNCE para evitar fluctuación LOST/FOUND
+      // Eventos con DEBOUNCE
       anchor.onTargetFound = () => {
         if (dragon.lostTimer) {
           clearTimeout(dragon.lostTimer);
@@ -246,15 +248,11 @@ async function iniciarMindAR() {
           statusEl.textContent = `🎯 ¡Dragón ${dragon.id.toUpperCase()} detectado!`;
           statusEl.className = 'ok';
           log(`🎯 [${dragon.id}] Target FOUND`);
-          
-          // Reanudar animación
           if (dragon.mixer) dragon.mixer.timeScale = 1;
         }
       };
       
       anchor.onTargetLost = () => {
-        // Debounce: esperar 400ms antes de declarar LOST
-        // Esto evita el parpadeo cuando el tracking es inestable
         if (!dragon.lostTimer) {
           dragon.lostTimer = setTimeout(() => {
             dragon.visible = false;
@@ -270,8 +268,6 @@ async function iniciarMindAR() {
               statusEl.className = 'info';
             }
             log(`👀 [${dragon.id}] Target LOST (debounced)`);
-            
-            // Pausar animación
             if (dragon.mixer) dragon.mixer.timeScale = 0;
           }, 400);
         }
@@ -289,7 +285,6 @@ async function iniciarMindAR() {
         const container = new THREE.Group();
         const model = gltf.scene;
         
-        // Escala idéntica a tu versión original
         container.scale.set(1.5, 1.5, 1.5);
         container.rotation.y = 0;
         
@@ -318,8 +313,6 @@ async function iniciarMindAR() {
           
           const action = mixer.clipAction(clip);
           action.play();
-          
-          // Iniciar pausado hasta que se detecte el target
           mixer.timeScale = 0;
         } else {
           log(`⚠️ [${dragon.id}] Sin animaciones en el modelo`);
@@ -341,16 +334,12 @@ async function iniciarMindAR() {
     }
 
     // ============================================
-    // RENDER LOOP OFICIAL (CORREGIDO)
+    // RENDER LOOP
     // ============================================
-    
-    // MindARThree NO tiene .onUpdate. Usamos setAnimationLoop como en tu
-    // código original que funcionaba. El renderer.render() es necesario.
     
     renderer.setAnimationLoop(() => {
       const delta = clock.getDelta();
       
-      // Actualizar animaciones de dragones visibles
       for (const dragon of dragones) {
         if (dragon.mixer && dragon.visible) {
           dragon.mixer.update(delta);
