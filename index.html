@@ -13,27 +13,17 @@
     background: #000;
     font-family: sans-serif;
   }
-  /* MindAR inyecta video y canvas en el body. Forzamos que ocupen todo. */
-  body > video, body > canvas {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-  }
   #ui {
     position: absolute;
     top: 10px;
     left: 10px;
-    z-index: 100;
+    z-index: 10;
     padding: 0.8em 1em;
     background: rgba(0,0,0,0.8);
     color: #fff;
     font-size: 0.85em;
     border-radius: 8px;
     max-width: 360px;
-    pointer-events: none;
   }
   .badge {
     display: inline-block;
@@ -121,7 +111,7 @@ async function iniciar() {
   const mixers = [];
   const clock = new THREE.Clock();
 
-  // ===== AZUL =====
+  // ===== AZUL (funciona, no lo tocamos) =====
   const a0 = mindar.addAnchor(0);
   const c0 = new THREE.Mesh(
     new THREE.BoxGeometry(0.06, 0.06, 0.06),
@@ -150,68 +140,78 @@ async function iniciar() {
       const mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(gltf.animations[4]).play();
       mixers.push({ mixer, anchor: a0 });
-      log('🎬 Azul anim 4: ' + gltf.animations[4].name);
+      log('🎬 Azul anim 4');
     }
   });
 
-  // ===== ROJO =====
+  // ===== ROJO (compensando transformaciones de Unity) =====
   const a1 = mindar.addAnchor(1);
-  const c1 = new THREE.Mesh(
-    new THREE.BoxGeometry(0.06, 0.06, 0.06),
-    new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+  
+  // Cubo de fallback (si el modelo nunca aparece, este sí se verá)
+  const fallback = new THREE.Mesh(
+    new THREE.BoxGeometry(0.15, 0.15, 0.15),
+    new THREE.MeshBasicMaterial({ color: 0xff0000 })
   );
-  c1.position.set(0, 0.05, 0.05);
-  a1.group.add(c1);
+  fallback.position.set(0, 0.2, 0.1);
+  a1.group.add(fallback);
 
-  a1.onTargetFound = () => { bRed.classList.add('on-red'); status.textContent = '🎯 Rojo'; log('🎯 Rojo FOUND'); };
-  a1.onTargetLost = () => { bRed.classList.remove('on-red'); status.textContent = '👀 Buscando'; log('👀 Rojo LOST'); };
+  a1.onTargetFound = () => { 
+    bRed.classList.add('on-red'); 
+    status.textContent = '🎯 Rojo'; 
+    log('🎯 Rojo FOUND'); 
+  };
+  a1.onTargetLost = () => { 
+    bRed.classList.remove('on-red'); 
+    status.textContent = '👀 Buscando'; 
+    log('👀 Rojo LOST'); 
+  };
 
   loader.load('./models/Red.glb', (gltf) => {
     log('✅ Rojo GLB cargado');
-    c1.visible = false;
-
+    
     const model = gltf.scene;
+    
+    // DIAGNÓSTICO
+    let meshes = 0, verts = 0;
+    model.traverse(c => { if (c.isMesh) { meshes++; verts += c.geometry.attributes.position.count; } });
+    log(`📊 Rojo: ${meshes} meshes, ${verts} vértices`);
 
     // ============================================
-    // DIAGNÓSTICO: ¿Cuántos meshes y vértices tiene?
+    // COMPENSACIÓN DE UNITY:
+    // - El modelo en Unity tenía Scale 0.05 → el GLB puede tener escala interna 0.05
+    // - El modelo en Unity tenía Rotation Y 180 → boca abajo en el GLB
     // ============================================
-    let meshCount = 0;
-    let vertexCount = 0;
+    
+    // 1. Resetear transformación del nodo raíz (por si Unity bakeó algo)
+    model.position.set(0, 0, 0);
+    model.rotation.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
+    
+    // 2. Contenedor con compensaciones:
+    //    - Escala 30 para compensar el 0.05 interno de Unity (1.5 / 0.05 = 30)
+    //    - Rotación Y 180 para compensar la rotación de Unity (lo pone boca arriba)
+    const container = new THREE.Group();
+    container.scale.set(30, 30, 30);
+    container.rotation.y = Math.PI; // 180°
+    container.position.set(0, 0.2, 0.1); // Más arriba y hacia cámara
+    
+    // 3. Pintar de rojo brillante para garantizar visibilidad
     model.traverse((child) => {
       if (child.isMesh) {
-        meshCount++;
-        vertexCount += child.geometry.attributes.position.count;
-      }
-    });
-    log(`📊 Rojo: ${meshCount} meshes, ${vertexCount} vértices`);
-
-    // ============================================
-    // FORZAR MATERIAL ROJO BRILLANTE + DOBLE CARA
-    // Si el modelo tiene geometría, esto lo hará visible
-    // sin depender de luces, texturas, ni alpha.
-    // ============================================
-    model.traverse((child) => {
-      if (child.isMesh) {
-        child.material = new THREE.MeshBasicMaterial({
-          color: 0xff0000,
-          side: THREE.DoubleSide,
-          wireframe: false
+        child.material = new THREE.MeshBasicMaterial({ 
+          color: 0xff0000, 
+          side: THREE.DoubleSide 
         });
       }
     });
-    log('🔴 Rojo: material forzado a rojo brillante');
-
-    // ============================================
-    // POSICIÓN: dejar el modelo en su origen del GLB
-    // y subirlo ligeramente para que no esté enterrado
-    // ============================================
-    const container = new THREE.Group();
-    container.scale.set(1.5, 1.5, 1.5);
-    container.position.set(0, 0.05, 0.05);
+    
     container.add(model);
     a1.group.add(container);
+    
+    // Si el modelo se ve, ocultar el fallback
+    fallback.visible = false;
 
-    // Verificar tamaño final
+    // Bounding box final
     const box = new THREE.Box3().setFromObject(container);
     const size = box.getSize(new THREE.Vector3());
     log('📏 Rojo tamaño: ' + size.x.toFixed(2) + ' x ' + size.y.toFixed(2) + ' x ' + size.z.toFixed(2));
@@ -220,7 +220,7 @@ async function iniciar() {
       const mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(gltf.animations[5]).play();
       mixers.push({ mixer, anchor: a1 });
-      log('🎬 Rojo anim 5: ' + gltf.animations[5].name);
+      log('🎬 Rojo anim 5');
     }
   });
 
