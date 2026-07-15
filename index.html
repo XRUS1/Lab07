@@ -177,9 +177,6 @@ async function iniciarMindAR() {
     // ============================================
     // CONFIGURACIÓN DE DRAGONES
     // ============================================
-    // AJUSTA 'scale' SEGÚN EL TAMAÑO REAL DEL MODELO
-    // El azul funciona con 1.5. El rojo (SoulEater) puede necesitar otro valor.
-    // Prueba: 0.015 (muy pequeño), 15 (muy grande), 1.5 (igual que azul)
     
     const dragones = [
       {
@@ -187,7 +184,7 @@ async function iniciarMindAR() {
         targetIndex: 0,
         modelPath: './models/Blue.glb',
         animIndex: 4,
-        scale: 1.5,           // ← Escala del azul (funciona)
+        scale: 1.5,
         color: '#50a8fc',
         badge: badgeBlue,
         anchor: null,
@@ -202,7 +199,7 @@ async function iniciarMindAR() {
         targetIndex: 1,
         modelPath: './models/Red.glb',
         animIndex: 5,
-        scale: 1.5,           // ← AJUSTA ESTE VALOR si el SoulEater es de otro tamaño
+        scale: 1.5,
         color: '#ff5050',
         badge: badgeRed,
         anchor: null,
@@ -278,17 +275,14 @@ async function iniciarMindAR() {
         }
       };
 
-      // Cargar modelo GLB
+      // ============================================
+      // CARGAR MODELO GLB
+      // ============================================
+      
       log(`⏳ Cargando ${dragon.modelPath}...`);
       
       loader.load(dragon.modelPath, (gltf) => {
         log(`✅ [${dragon.id}] Modelo cargado. Animaciones: ${gltf.animations.length}`);
-        
-        // === DIAGNÓSTICO: Tamaño real del modelo antes de escalar ===
-        const sizeBox = new THREE.Box3().setFromObject(gltf.scene);
-        const size = sizeBox.getSize(new THREE.Vector3());
-        log(`📏 [${dragon.id}] Tamaño real (sin escalar): ${size.x.toFixed(3)} x ${size.y.toFixed(3)} x ${size.z.toFixed(3)}`);
-        // ============================================================
         
         // Ocultar cubo de debug
         debugCube.visible = false;
@@ -296,24 +290,35 @@ async function iniciarMindAR() {
         const container = new THREE.Group();
         const model = gltf.scene;
         
-        // Escala individual por dragón
+        // Escala
         const s = dragon.scale;
         container.scale.set(s, s, s);
         container.rotation.y = 0;
         
-        // Centrar modelo
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        model.position.set(-center.x, -center.y, -center.z);
+        // ============================================
+        // CENTRADO: Diferente para cada dragón
+        // ============================================
+        if (dragon.id === 'red') {
+          // ROJO: NO centrar. El GLB ya está bien posicionado (verificado en Babylon.js)
+          // Solo elevar ligeramente para que no esté enterrado en la tarjeta
+          model.position.set(0, 0, 0);
+          container.position.set(0, 0.05, 0.05);
+          log(`🔧 [red] Sin centrado manual. Posición original del GLB.`);
+        } else {
+          // AZUL: Centrar como siempre (funciona)
+          const box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+          model.position.set(-center.x, -center.y, -center.z);
+          container.position.set(0, 0.05, 0.05);
+        }
+        // ============================================
         
         container.add(model);
-        container.position.set(0, 0.05, 0.05);
-        
         anchor.group.add(container);
         dragon.container = container;
         dragon.model = model;
 
-        log(`✅ [${dragon.id}] Modelo añadido al anchor (escala: ${s})`);
+        log(`✅ [${dragon.id}] Modelo añadido al anchor`);
 
         // Configurar animación
         if (gltf.animations && gltf.animations.length > 0) {
