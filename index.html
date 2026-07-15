@@ -30,6 +30,7 @@
     <span class="badge" id="b-blue">🔵 Azul</span>
     <span class="badge" id="b-red">🔴 Rojo</span>
   </div>
+  <div id="debug" style="margin-top:0.5em;font-size:0.75em;color:#aaa;"></div>
 </div>
 
 <script type="module">
@@ -38,8 +39,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MindARThree } from 'mindar-image-three';
 
 const status = document.getElementById('status');
+const debug = document.getElementById('debug');
 const bBlue = document.getElementById('b-blue');
 const bRed = document.getElementById('b-red');
+
+function log(msg) {
+  console.log(msg);
+  debug.innerHTML += msg + '<br>';
+}
 
 fetch('./targets.mind')
   .then(r => r.ok ? iniciar() : Promise.reject(r.status))
@@ -62,31 +69,25 @@ async function iniciar() {
   const loader = new GLTFLoader();
   const clock = new THREE.Clock();
 
-  // ============================================
-  // AZUL: target 0, Blue.glb, animación 4
-  // ============================================
-  const anchor0 = mindar.addAnchor(0);
-  const cube0 = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.1),
-    new THREE.MeshBasicMaterial({ color: 0x50a8fc, wireframe: true })
-  );
-  anchor0.group.add(cube0);
-
-  anchor0.onTargetFound = () => { bBlue.classList.add('on'); status.textContent = '🎯 Azul'; };
-  anchor0.onTargetLost = () => { bBlue.classList.remove('on'); status.textContent = '👀 Buscando'; };
+  // ===== AZUL =====
+  const a0 = mindar.addAnchor(0);
+  const c0 = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.1), new THREE.MeshBasicMaterial({color:0x50a8fc,wireframe:true}));
+  a0.group.add(c0);
+  a0.onTargetFound = () => { bBlue.classList.add('on'); status.textContent='🎯 Azul'; };
+  a0.onTargetLost = () => { bBlue.classList.remove('on'); status.textContent='👀 Buscando'; };
 
   loader.load('./models/Blue.glb', (gltf) => {
-    cube0.visible = false;
+    c0.visible = false;
     const model = gltf.scene;
     const box = new THREE.Box3().setFromObject(model);
     const c = box.getCenter(new THREE.Vector3());
     model.position.set(-c.x, -c.y, -c.z);
 
     const container = new THREE.Group();
-    container.scale.set(1.5, 1.5, 1.5);
+    container.scale.set(1.5,1.5,1.5);
     container.position.set(0, 0.05, 0.05);
     container.add(model);
-    anchor0.group.add(container);
+    a0.group.add(container);
 
     if (gltf.animations[4]) {
       const mixer = new THREE.AnimationMixer(model);
@@ -95,39 +96,42 @@ async function iniciar() {
     }
   });
 
-  // ============================================
-  // ROJO: target 1, Red.glb, animación 5
-  // DIFERENCIA CLAVE: NO centramos con Box3.
-  // El GLB del SoulEater ya está centrado (verificado en Babylon.js).
-  // El esqueleto distorsiona el Box3, así que lo dejamos tal cual.
-  // ============================================
-  const anchor1 = mindar.addAnchor(1);
-  const cube1 = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.1),
-    new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-  );
-  anchor1.group.add(cube1);
-
-  anchor1.onTargetFound = () => { bRed.classList.add('on'); status.textContent = '🎯 Rojo'; };
-  anchor1.onTargetLost = () => { bRed.classList.remove('on'); status.textContent = '👀 Buscando'; };
+  // ===== ROJO =====
+  const a1 = mindar.addAnchor(1);
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.1), new THREE.MeshBasicMaterial({color:0xff0000,wireframe:true}));
+  a1.group.add(c1);
+  a1.onTargetFound = () => { bRed.classList.add('on'); status.textContent='🎯 Rojo'; };
+  a1.onTargetLost = () => { bRed.classList.remove('on'); status.textContent='👀 Buscando'; };
 
   loader.load('./models/Red.glb', (gltf) => {
-    cube1.visible = false;
+    c1.visible = false;
     const model = gltf.scene;
 
-    // NO centramos. El GLB ya está bien.
-    // Solo escala y posición sobre la tarjeta.
+    // DIAGNÓSTICO: ¿Dónde está el nodo raíz antes de resetear?
+    log(`📐 [red] Raíz pos: ${model.position.x.toFixed(2)}, ${model.position.y.toFixed(2)}, ${model.position.z.toFixed(2)}`);
+    log(`📐 [red] Raíz scale: ${model.scale.x.toFixed(2)}, ${model.scale.y.toFixed(2)}, ${model.scale.z.toFixed(2)}`);
+
+    // RESET completo de la transformación del nodo raíz
+    model.position.set(0, 0, 0);
+    model.rotation.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
+
     const container = new THREE.Group();
     container.scale.set(1.5, 1.5, 1.5);
     container.position.set(0, 0.05, 0.05);
     container.add(model);
-    anchor1.group.add(container);
+    a1.group.add(container);
+
+    // Verificar bounding box después del reset
+    const box = new THREE.Box3().setFromObject(container);
+    const size = box.getSize(new THREE.Vector3());
+    log(`📏 [red] Tamaño contenedor: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
 
     if (gltf.animations[5]) {
       const mixer = new THREE.AnimationMixer(model);
       mixer.clipAction(gltf.animations[5]).play();
-      const oldUpdate = mindar.onUpdate;
-      mindar.onUpdate = (dt) => { oldUpdate && oldUpdate(dt); mixer.update(dt); };
+      const old = mindar.onUpdate;
+      mindar.onUpdate = (dt) => { old && old(dt); mixer.update(dt); };
     }
   });
 
