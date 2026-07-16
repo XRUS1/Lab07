@@ -1,1 +1,1 @@
-# Lab07: Image Tracking dragones blue.glb y red.glb
+# Lab07: Hit Test.
